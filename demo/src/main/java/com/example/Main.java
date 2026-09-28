@@ -26,6 +26,7 @@ public class Main extends JFrame {
         tabs.addTab("Difusão 1D", new Simulador1());
         tabs.addTab("Difusão 2D", new Simulador2());
         tabs.addTab("Difusão 3D", new Simulador3());
+        tabs.addTab("Laboratório", new PainelMelhorias());
 
         JPanel content = new JPanel(new BorderLayout());
         content.add(tabs, BorderLayout.CENTER);
