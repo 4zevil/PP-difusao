@@ -37,7 +37,7 @@ public class PainelMelhorias extends JPanel {
     private final JComboBox<DiffusionEngine.BoundaryType> boundarySelector =
             new JComboBox<>(DiffusionEngine.BoundaryType.values());
     private final JSpinner boundaryLimitField = new JSpinner(new SpinnerNumberModel(15.0, 0.1, 10000.0, 1.0));
-    private final JSpinner driftField = new JSpinner(new SpinnerNumberModel(0.5, 0.0, 1.0, 0.05));
+    private final JSpinner driftField = new JSpinner(new SpinnerNumberModel(0.5, 0.00, 1.00, 0.05));
     private final JCheckBox obstacleEnabled = new JCheckBox("Obstáculo 2D");
     private final JSpinner obstacleXField = new JSpinner(new SpinnerNumberModel(5.0, -1000.0, 1000.0, 1.0));
     private final JSpinner obstacleYField = new JSpinner(new SpinnerNumberModel(0.0, -1000.0, 1000.0, 1.0));
@@ -134,6 +134,7 @@ public class PainelMelhorias extends JPanel {
         obstacleEnabled.addActionListener(event -> setObstacleFieldsEnabled(obstacleEnabled.isSelected()));
         setObstacleFieldsEnabled(false);
         boundaryLimitField.setEnabled(false);
+        driftField.setPreferredSize(new Dimension(82, driftField.getPreferredSize().height));
     }
 
     private void applySelectedPreset() {
