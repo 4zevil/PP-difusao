@@ -1,4 +1,4 @@
-﻿package com.example;
+package com.example;
 
 import javax.swing.*;
 import java.awt.*;
@@ -48,7 +48,7 @@ public class Simulador3 extends JPanel {
     private Point lastMousePos;
 
     public Simulador3() {
-        setBackground(Color.WHITE);
+        setBackground(new Color(248, 250, 251));
         setPreferredSize(new Dimension(850, 700));
 
         // Controle do Mouse para Rotacao 3D
@@ -220,7 +220,7 @@ public class Simulador3 extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g;
+        Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
@@ -303,15 +303,23 @@ public class Simulador3 extends JPanel {
 
         // Titulo
         g2.setColor(new Color(30, 30, 30));
-        g2.setFont(new Font("Times New Roman", Font.BOLD, 18));
-        String title = "Diffusion in 3D: " + numPart + " particles during " + numSteps + " steps (Passo " + (currentStep + 1) + ")";
+        g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+        String title = "Difusão em 3D  |  passo " + (currentStep + 1) + "/" + numSteps;
         FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(title, (width - fm.stringWidth(title)) / 2, 35);
+        g2.setColor(new Color(35, 48, 58));
+        g2.drawString(title, (width - fm.stringWidth(title)) / 2, 30);
 
-        // Dica
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        g2.setColor(new Color(120, 120, 120));
-        g2.drawString("Controle: Clique e arraste para rotacionar 3D | Scroll do mouse para dar Zoom", 15, height - 15);
+        g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+        g2.setColor(new Color(82, 98, 107));
+        String metrics = String.format(java.util.Locale.US, "N = %d    MSD = %.3f    RMSD = %.3f",
+            numPart, randSquareMeanX[currentStep] * randSquareMeanX[currentStep]
+                + randSquareMeanY[currentStep] * randSquareMeanY[currentStep]
+                + randSquareMeanZ[currentStep] * randSquareMeanZ[currentStep],
+            Math.sqrt(randSquareMeanX[currentStep] * randSquareMeanX[currentStep]
+                + randSquareMeanY[currentStep] * randSquareMeanY[currentStep]
+                + randSquareMeanZ[currentStep] * randSquareMeanZ[currentStep]));
+        g2.drawString(metrics, 18, height - 18);
+        g2.dispose();
     }
 
     private void adicionarEixosECaixa(List<Renderable3D> list, int cx, int cy, double scale) {

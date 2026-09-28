@@ -146,60 +146,87 @@ public class Simulador1 extends JPanel {
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            int separator = getWidth() / 2;
+            int top = 70;
+            int bottom = getHeight() - 55;
+            int leftPlotX = 58;
+            int leftPlotRight = separator - 24;
+            int rightPlotX = separator + 54;
+            int rightPlotRight = getWidth() - 28;
 
-            int left = 80;
-            int right = getWidth() - 30;
-            int top = 50;
-            int bottom = getHeight() - 60;
-            int plotWidth = right - left;
-            int plotHeight = bottom - top;
+            g.setColor(new Color(248, 250, 251));
+            g.fillRect(leftPlotX, top, leftPlotRight - leftPlotX, bottom - top);
+            g.fillRect(rightPlotX, top, rightPlotRight - rightPlotX, bottom - top);
+            g.setColor(new Color(222, 228, 232));
+            g.drawLine(separator, top, separator, bottom);
 
-            double minX = Double.MAX_VALUE;
-            double maxX = Double.MIN_VALUE;
-            for (double[] row : result.trajectories()) {
-                for (double value : row) {
-                    if (value < minX) minX = value;
-                    if (value > maxX) maxX = value;
+            g.setColor(new Color(35, 48, 58));
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 15));
+            g.drawString("Trajetórias", leftPlotX, 48);
+            g.drawString("Distribuição final", rightPlotX, 48);
+
+            drawTrajectoryPlot(g, leftPlotX, top, leftPlotRight - leftPlotX, bottom - top);
+            drawHistogram(g, result.histogram(), rightPlotX, top, rightPlotRight - rightPlotX, bottom - top);
+
+            g.setColor(new Color(35, 48, 58));
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+            String title = "Passeio aleatório unidimensional";
+            g.drawString(title, (getWidth() - g.getFontMetrics().stringWidth(title)) / 2, 27);
+            g.dispose();
+        }
+
+        private void drawTrajectoryPlot(Graphics2D g, int x, int y, int width, int height) {
+            int left = x + 42;
+            int right = x + width - 12;
+            int top = y + 12;
+            int bottom = y + height - 34;
+            double maxAbs = 1.0;
+            for (double[] trajectory : result.trajectories()) {
+                for (double position : trajectory) {
+                    maxAbs = Math.max(maxAbs, Math.abs(position));
                 }
             }
-            if (maxX == minX) {
-                maxX = minX + 1.0;
-            }
-            double xRange = Math.max(1.0, (maxX - minX) * 0.6);
-            double xScale = plotWidth / (2.0 * xRange);
-            double centerX = (maxX + minX) / 2.0;
+            maxAbs *= 1.12;
+            double plotWidth = right - left;
+            double plotHeight = bottom - top;
 
-            drawAxes(g, left, right, top, bottom, plotWidth, plotHeight, minX, maxX, currentS, xScale, centerX);
+            for (int tick = 0; tick <= 4; tick++) {
+                int gridY = top + (int) Math.round(tick * plotHeight / 4.0);
+                g.setColor(new Color(225, 231, 235));
+                g.drawLine(left, gridY, right, gridY);
+                g.setColor(new Color(91, 104, 113));
+                String label = Integer.toString(currentS - (int) Math.round(tick * currentS / 4.0));
+                g.drawString(label, x + 5, gridY + 4);
+            }
+            g.setColor(new Color(91, 104, 113));
+            for (int tick = 0; tick <= 4; tick++) {
+                double value = -maxAbs + 2.0 * maxAbs * tick / 4.0;
+                int gridX = left + (int) Math.round(tick * plotWidth / 4.0);
+                g.setColor(new Color(225, 231, 235));
+                g.drawLine(gridX, top, gridX, bottom);
+                g.setColor(new Color(91, 104, 113));
+                g.drawString(String.format(Locale.US, "%.1f", value), gridX - 12, bottom + 18);
+            }
 
             for (int particle = 0; particle < result.trajectories().length; particle++) {
-                g.setColor(PARTICLE_COLORS[particle % PARTICLE_COLORS.length]);
-                g.setStroke(new BasicStroke(1.5f));
-                for (int step = 0; step <= currentS; step++) {
-                    double x = result.trajectories()[particle][step];
-                    int px = left + (int) Math.round((x - centerX + xRange) * xScale);
-                    int py = bottom - (int) Math.round(step * plotHeight / (double) currentS);
-                    if (step > 0) {
-                        double prevX = result.trajectories()[particle][step - 1];
-                        int prevPx = left + (int) Math.round((prevX - centerX + xRange) * xScale);
-                        int prevPy = bottom - (int) Math.round((step - 1) * plotHeight / (double) currentS);
-                        g.drawLine(prevPx, prevPy, px, py);
-                    }
-                    g.fillOval(px - 2, py - 2, 4, 4);
+                g.setColor(new Color(PARTICLE_COLORS[particle % PARTICLE_COLORS.length].getRed(),
+                        PARTICLE_COLORS[particle % PARTICLE_COLORS.length].getGreen(),
+                        PARTICLE_COLORS[particle % PARTICLE_COLORS.length].getBlue(), 100));
+                g.setStroke(new BasicStroke(1.0f));
+                for (int step = 1; step <= currentS; step++) {
+                    int prevX = left + (int) Math.round((result.trajectories()[particle][step - 1] + maxAbs) * plotWidth / (2.0 * maxAbs));
+                    int currX = left + (int) Math.round((result.trajectories()[particle][step] + maxAbs) * plotWidth / (2.0 * maxAbs));
+                    int prevY = bottom - (int) Math.round((step - 1) * plotHeight / currentS);
+                    int currY = bottom - (int) Math.round(step * plotHeight / currentS);
+                    g.drawLine(prevX, prevY, currX, currY);
                 }
             }
-
-            DiffusionEngine.HistogramData histogram = result.histogram();
-            int histX = getWidth() / 2 + 40;
-            int histY = 50;
-            int histW = getWidth() - histX - 30;
-            int histH = getHeight() - 120;
-            drawHistogram(g, histogram, histX, histY, histW, histH);
-
-            String title = "Difusão em 1D: N=" + currentN + ", S=" + currentS;
-            g.setColor(Color.DARK_GRAY);
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
-            g.drawString(title, (getWidth() - g.getFontMetrics().stringWidth(title)) / 2, 24);
-            g.dispose();
+            g.setColor(new Color(55, 66, 74));
+            g.setStroke(new BasicStroke(1.2f));
+            g.drawLine(left, top, left, bottom);
+            g.drawLine(left, bottom, right, bottom);
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            g.drawString("posição x", left + (right - left) / 2 - 22, bottom + 33);
         }
 
         private void drawAxes(Graphics2D g, int left, int right, int top, int bottom,
@@ -231,43 +258,72 @@ public class Simulador1 extends JPanel {
         }
 
         private void drawHistogram(Graphics2D g, DiffusionEngine.HistogramData histogram, int x, int y, int width, int height) {
-            g.setColor(new Color(245, 245, 245));
-            g.fillRect(x, y, width, height);
-            g.setColor(Color.DARK_GRAY);
-            g.drawRect(x, y, width, height);
-
             if (histogram == null || histogram.binCenters() == null || histogram.counts() == null || histogram.density() == null) {
                 return;
             }
+            int left = x + 14;
+            int right = x + width - 10;
+            int top = y + 12;
+            int bottom = y + height - 34;
+            int plotWidth = right - left;
+            int plotHeight = bottom - top;
+            double[] centers = histogram.binCenters();
+            double binWidth = histogram.binWidth();
+            double minX = centers[0] - binWidth / 2.0;
+            double maxX = centers[centers.length - 1] + binWidth / 2.0;
+            double time = currentS * currentTau;
+            double diffusion = currentDelta * currentDelta / (2.0 * currentTau);
+            double maxDensity = 0.0;
+            for (double value : histogram.density()) maxDensity = Math.max(maxDensity, value);
+            for (int i = 0; i <= plotWidth; i++) {
+                double value = minX + i * (maxX - minX) / plotWidth;
+                maxDensity = Math.max(maxDensity, DiffusionEngine.gaussian1D(value, time, diffusion, 1.0));
+            }
+            maxDensity = Math.max(maxDensity, 1e-12) * 1.12;
 
-            int maxCount = 1;
-            for (int value : histogram.counts()) {
-                maxCount = Math.max(maxCount, value);
+            for (int tick = 0; tick <= 4; tick++) {
+                int gridY = top + (int) Math.round(tick * plotHeight / 4.0);
+                g.setColor(new Color(225, 231, 235));
+                g.drawLine(left, gridY, right, gridY);
             }
 
-            for (int i = 0; i < histogram.binCenters().length; i++) {
-                int barWidth = Math.max(2, width / histogram.binCenters().length - 2);
-                int barHeight = (int) ((histogram.counts()[i] / (double) maxCount) * (height - 30));
-                int barX = x + i * (width / histogram.binCenters().length) + 2;
-                int barY = y + height - 20 - barHeight;
-                g.setColor(new Color(80, 120, 220));
-                g.fillRect(barX, barY, barWidth, barHeight);
+            for (int i = 0; i < centers.length; i++) {
+                int barLeft = left + (int) Math.round((centers[i] - binWidth / 2.0 - minX) * plotWidth / (maxX - minX));
+                int barRight = left + (int) Math.round((centers[i] + binWidth / 2.0 - minX) * plotWidth / (maxX - minX));
+                int barHeight = (int) Math.round(histogram.density()[i] * plotHeight / maxDensity);
+                g.setColor(new Color(36, 139, 132, 190));
+                g.fillRect(barLeft + 1, bottom - barHeight, Math.max(1, barRight - barLeft - 2), barHeight);
             }
 
-            int[] xs = new int[histogram.binCenters().length];
-            int[] ys = new int[histogram.binCenters().length];
-            double maxDensity = 1.0;
-            for (double density : histogram.density()) {
-                maxDensity = Math.max(maxDensity, density);
+            int previousX = left;
+            int previousY = bottom;
+            g.setColor(new Color(196, 74, 54));
+            g.setStroke(new BasicStroke(2.2f));
+            for (int i = 0; i <= plotWidth; i++) {
+                double value = minX + i * (maxX - minX) / plotWidth;
+                double density = DiffusionEngine.gaussian1D(value, time, diffusion, 1.0);
+                int pointY = bottom - (int) Math.round(density * plotHeight / maxDensity);
+                if (i > 0) g.drawLine(previousX, previousY, left + i, pointY);
+                previousX = left + i;
+                previousY = pointY;
             }
-            for (int i = 0; i < histogram.binCenters().length; i++) {
-                double density = histogram.density()[i];
-                xs[i] = x + (int) ((i + 0.5) * (width / (double) histogram.binCenters().length));
-                ys[i] = y + height - 20 - (int) ((density / maxDensity) * (height - 30));
-            }
-            g.setColor(Color.RED);
-            g.setStroke(new BasicStroke(2.0f));
-            g.drawPolyline(xs, ys, xs.length);
+
+            g.setColor(new Color(55, 66, 74));
+            g.setStroke(new BasicStroke(1.2f));
+            g.drawLine(left, top, left, bottom);
+            g.drawLine(left, bottom, right, bottom);
+            g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            g.drawString("densidade", x + 2, top + 4);
+            g.drawString("posição final x", left + plotWidth / 2 - 42, bottom + 32);
+            g.setColor(new Color(36, 139, 132));
+            g.fillRect(left + 8, top + 8, 10, 10);
+            g.setColor(new Color(55, 66, 74));
+            g.drawString("simulação", left + 23, top + 17);
+            g.setColor(new Color(196, 74, 54));
+            g.setStroke(new BasicStroke(2.2f));
+            g.drawLine(left + 94, top + 13, left + 108, top + 13);
+            g.setColor(new Color(55, 66, 74));
+            g.drawString("Fick", left + 113, top + 17);
         }
     }
 }

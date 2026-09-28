@@ -32,6 +32,8 @@ public class Simulador2 extends JPanel {
     private double rotationX = Math.toRadians(25);
     private double rotationY = Math.toRadians(-35);
     private double zoom = 1.0;
+    private double delta = 1.0;
+    private double tau = 1.0;
     private Point lastMouse;
 
     public Simulador2() {
@@ -66,10 +68,11 @@ public class Simulador2 extends JPanel {
         controls.add(stepLabel);
 
         Timer timer = new Timer(120, e -> {
-            if (currentStep < nSteps - 1) {
+            int finalStep = result.x()[0].length - 1;
+            if (currentStep < finalStep) {
                 currentStep++;
             }
-            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, nSteps));
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, finalStep));
             repaint();
         });
 
@@ -84,18 +87,19 @@ public class Simulador2 extends JPanel {
         });
 
         restart.addActionListener(e -> {
-            currentStep = 50;
-            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, nSteps));
+            currentStep = Math.min(50, result.x()[0].length - 1);
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, result.x()[0].length - 1));
             repaint();
         });
 
         simulate.addActionListener(e -> {
             int n = (int) nField.getValue();
             int s = (int) sField.getValue();
-            double delta = ((Number) deltaField.getValue()).doubleValue();
-            double tau = ((Number) tauField.getValue()).doubleValue();
+            delta = ((Number) deltaField.getValue()).doubleValue();
+            tau = ((Number) tauField.getValue()).doubleValue();
             result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(n, s, delta, tau));
             currentStep = Math.min(50, s - 1);
+            if (timer.isRunning()) timer.restart();
             stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, s));
             repaint();
         });
@@ -127,7 +131,6 @@ public class Simulador2 extends JPanel {
         addMouseWheelListener(mouse);
 
         add(controls, BorderLayout.NORTH);
-        add(this, BorderLayout.CENTER);
         timer.start();
     }
 
@@ -155,6 +158,18 @@ public class Simulador2 extends JPanel {
         maxAbs *= 1.5;
         double scale = Math.min(getWidth(), getHeight()) / (2.8 * maxAbs) * zoom;
 
+        g.setColor(new Color(248, 250, 251));
+        g.fillRect(0, 0, getWidth(), getHeight());
+
+        double diffusion = delta * delta / (2.0 * tau);
+        double time = currentStep * tau;
+        double sigma = Math.sqrt(2.0 * diffusion * time);
+        sigma = Math.max(sigma, 0.001);
+        if (time > 0.0) {
+            double peak = 1.0 / (4.0 * Math.PI * diffusion * time);
+            drawGaussianSurface(g, cx, cy, scale, maxAbs, sigma, peak);
+        }
+
         for (int particle = 0; particle < result.x().length; particle++) {
             int[] trailX = new int[currentStep + 1];
             int[] trailY = new int[currentStep + 1];
@@ -171,46 +186,46 @@ public class Simulador2 extends JPanel {
             g.fillOval((int) current.x - 3, (int) current.y - 3, 6, 6);
         }
 
-        double centerX = 0.0;
-        double centerY = 0.0;
-        double sigmaX = Math.sqrt(result.msd()[currentStep]) / 2.0;
-        double sigmaY = sigmaX;
-        for (int row = 0; row < 24; row++) {
-            for (int col = 0; col < 24; col++) {
-                double x1 = -maxAbs + col * (2 * maxAbs / 24.0);
-                double x2 = -maxAbs + (col + 1) * (2 * maxAbs / 24.0);
-                double y1 = -maxAbs + row * (2 * maxAbs / 24.0);
-                double y2 = -maxAbs + (row + 1) * (2 * maxAbs / 24.0);
-                double z11 = gaussianSurface(x1, y1, centerX, centerY, sigmaX, sigmaY);
-                double z12 = gaussianSurface(x2, y1, centerX, centerY, sigmaX, sigmaY);
-                double z21 = gaussianSurface(x1, y2, centerX, centerY, sigmaX, sigmaY);
-                double z22 = gaussianSurface(x2, y2, centerX, centerY, sigmaX, sigmaY);
-
-                Point3D a = project(x1, y1, z11, cx, cy, scale);
-                Point3D b = project(x2, y1, z12, cx, cy, scale);
-                Point3D c = project(x2, y2, z22, cx, cy, scale);
-                Point3D d = project(x1, y2, z21, cx, cy, scale);
-
-                int[] xs = {(int) a.x, (int) b.x, (int) c.x, (int) d.x};
-                int[] ys = {(int) a.y, (int) b.y, (int) c.y, (int) d.y};
-                g.setColor(new Color(30, 120, 220, 110));
-                g.fillPolygon(xs, ys, 4);
-                g.setColor(new Color(70, 90, 180, 120));
-                g.drawPolygon(xs, ys, 4);
-            }
-        }
-
         g.setColor(Color.DARK_GRAY);
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
-        String title = "Difusão em 2D";
+        String title = String.format(Locale.US, "Difusão em 2D  |  passo %d/%d  |  MSD = %.2f",
+                currentStep, result.x()[0].length - 1, result.msd()[currentStep]);
         g.drawString(title, (getWidth() - g.getFontMetrics().stringWidth(title)) / 2, 24);
         g.dispose();
     }
 
-    private double gaussianSurface(double x, double y, double meanX, double meanY, double sigmaX, double sigmaY) {
-        double exponent = -((x - meanX) * (x - meanX) / (2.0 * sigmaX * sigmaX)
-                + (y - meanY) * (y - meanY) / (2.0 * sigmaY * sigmaY));
-        return Math.exp(exponent) / (2.0 * Math.PI * sigmaX * sigmaY);
+    private void drawGaussianSurface(Graphics2D g, int cx, int cy, double scale, double extent,
+                                     double sigma, double peak) {
+        int gridSize = 24;
+        for (int row = 0; row < gridSize; row++) {
+            for (int col = 0; col < gridSize; col++) {
+                double x1 = -extent + col * (2.0 * extent / gridSize);
+                double x2 = -extent + (col + 1) * (2.0 * extent / gridSize);
+                double y1 = -extent + row * (2.0 * extent / gridSize);
+                double y2 = -extent + (row + 1) * (2.0 * extent / gridSize);
+                double z11 = gaussianSurface(x1, y1, sigma);
+                double z12 = gaussianSurface(x2, y1, sigma);
+                double z21 = gaussianSurface(x1, y2, sigma);
+                double z22 = gaussianSurface(x2, y2, sigma);
+
+                Point3D a = project(x1, y1, z11 / peak * extent * 0.4, cx, cy, scale);
+                Point3D b = project(x2, y1, z12 / peak * extent * 0.4, cx, cy, scale);
+                Point3D c = project(x2, y2, z22 / peak * extent * 0.4, cx, cy, scale);
+                Point3D d = project(x1, y2, z21 / peak * extent * 0.4, cx, cy, scale);
+
+                int[] xs = {(int) a.x, (int) b.x, (int) c.x, (int) d.x};
+                int[] ys = {(int) a.y, (int) b.y, (int) c.y, (int) d.y};
+                g.setColor(new Color(40, 150, 143, 45));
+                g.fillPolygon(xs, ys, 4);
+                g.setColor(new Color(34, 110, 108, 75));
+                g.drawPolygon(xs, ys, 4);
+            }
+        }
+    }
+
+    private double gaussianSurface(double x, double y, double sigma) {
+        return Math.exp(-(x * x + y * y) / (2.0 * sigma * sigma))
+                / (2.0 * Math.PI * sigma * sigma);
     }
 
     private Point3D project(double x, double y, double z, int cx, int cy, double scale) {
