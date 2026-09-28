@@ -1,360 +1,236 @@
 package com.example;
 
 import java.awt.BasicStroke;
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.RenderingHints;
-import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
-// Estruturas usadas para guardar e ordenar os elementos que serao desenhados.
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Random;
+import java.util.Locale;
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
-/** Passeio aleatorio em 2D com a distribuicao gaussiana em uma superficie 3D. */
 public class Simulador2 extends JPanel {
-    private static final Color[] PARTICLE_COLORS = {
-        new Color(31, 119, 180), new Color(255, 127, 14), new Color(44, 160, 44),
-        new Color(214, 39, 40), new Color(148, 103, 189), new Color(140, 86, 75),
-        new Color(227, 119, 194), new Color(127, 127, 127), new Color(188, 189, 34),
-        new Color(23, 190, 207)
-    };
-
-    // Estes valores correspondem a numPart, numSteps, startPlot e N_Sigma do Python.
-    private static final int NUM_PARTICLES = 150;
-    private static final int NUM_STEPS = 500;
-    private static final int START_PLOT = 50;
-    private static final int N_SIGMA = 2;
-    private static final int GRID_SIZE = 25;
-
-    // Cada linha representa uma particula; cada coluna representa um instante.
-    private final double[][] positionsX = new double[NUM_PARTICLES][NUM_STEPS];
-    private final double[][] positionsY = new double[NUM_PARTICLES][NUM_STEPS];
-    private final double[] meanX = new double[NUM_STEPS];
-    private final double[] meanY = new double[NUM_STEPS];
-    private final double[] rmsX = new double[NUM_STEPS];
-    private final double[] rmsY = new double[NUM_STEPS];
-    // Medias, desvios RMS e limites usados para desenhar a distribuicao.
-    private double maxPosition;
-    private int currentStep = START_PLOT;
-    // Estado da camera: arraste gira o grafico e a roda do mouse controla o zoom.
+    private final int nParticles = 150;
+    private final int nSteps = 500;
+    private DiffusionEngine.Result2D result;
+    private int currentStep = 50;
     private double rotationX = Math.toRadians(25);
     private double rotationY = Math.toRadians(-35);
     private double zoom = 1.0;
     private Point lastMouse;
 
     public Simulador2() {
-        // Configuracao inicial do painel e geracao dos dados antes da primeira pintura.
+        setLayout(new BorderLayout());
         setPreferredSize(new Dimension(1000, 760));
         setBackground(Color.WHITE);
-        gerarSimulacao();
+        runSimulation();
 
-        // Eventos equivalentes ao view_init e a uma interacao manual com o grafico.
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        controls.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JButton playPause = new JButton("Pausar");
+        JButton restart = new JButton("Reiniciar");
+        JLabel stepLabel = new JLabel();
+        JSpinner nField = new JSpinner(new SpinnerNumberModel(150, 10, 1000, 10));
+        JSpinner sField = new JSpinner(new SpinnerNumberModel(500, 10, 1500, 10));
+        JSpinner deltaField = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 5.0, 0.1));
+        JSpinner tauField = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 5.0, 0.1));
+        JButton simulate = new JButton("Simular");
+
+        controls.add(new JLabel("N:"));
+        controls.add(nField);
+        controls.add(new JLabel("S:"));
+        controls.add(sField);
+        controls.add(new JLabel("δ:"));
+        controls.add(deltaField);
+        controls.add(new JLabel("τ:"));
+        controls.add(tauField);
+        controls.add(simulate);
+        controls.add(playPause);
+        controls.add(restart);
+        controls.add(stepLabel);
+
+        Timer timer = new Timer(120, e -> {
+            if (currentStep < nSteps - 1) {
+                currentStep++;
+            }
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, nSteps));
+            repaint();
+        });
+
+        playPause.addActionListener(e -> {
+            if (timer.isRunning()) {
+                timer.stop();
+                playPause.setText("Continuar");
+            } else {
+                timer.start();
+                playPause.setText("Pausar");
+            }
+        });
+
+        restart.addActionListener(e -> {
+            currentStep = 50;
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, nSteps));
+            repaint();
+        });
+
+        simulate.addActionListener(e -> {
+            int n = (int) nField.getValue();
+            int s = (int) sField.getValue();
+            double delta = ((Number) deltaField.getValue()).doubleValue();
+            double tau = ((Number) tauField.getValue()).doubleValue();
+            result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(n, s, delta, tau));
+            currentStep = Math.min(50, s - 1);
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, s));
+            repaint();
+        });
+
         MouseAdapter mouse = new MouseAdapter() {
             @Override
-            public void mousePressed(MouseEvent event) {
-                lastMouse = event.getPoint();
+            public void mousePressed(MouseEvent e) {
+                lastMouse = e.getPoint();
             }
 
             @Override
-            public void mouseDragged(MouseEvent event) {
-                // A diferenca entre os pontos do mouse vira um novo angulo da camera.
+            public void mouseDragged(MouseEvent e) {
                 if (lastMouse == null) return;
-                rotationY += (event.getX() - lastMouse.x) * 0.01;
-                rotationX += (event.getY() - lastMouse.y) * 0.01;
+                rotationY += (e.getX() - lastMouse.x) * 0.01;
+                rotationX += (e.getY() - lastMouse.y) * 0.01;
                 rotationX = Math.max(-1.45, Math.min(1.45, rotationX));
-                lastMouse = event.getPoint();
+                lastMouse = e.getPoint();
                 repaint();
             }
 
             @Override
-            public void mouseWheelMoved(MouseWheelEvent event) {
-                // Roda para cima aproxima; roda para baixo afasta.
-                zoom *= event.getWheelRotation() < 0 ? 1.1 : 1 / 1.1;
+            public void mouseWheelMoved(MouseWheelEvent e) {
+                zoom *= e.getWheelRotation() < 0 ? 1.1 : 1 / 1.1;
                 repaint();
             }
         };
         addMouseListener(mouse);
         addMouseMotionListener(mouse);
         addMouseWheelListener(mouse);
+
+        add(controls, BorderLayout.NORTH);
+        add(this, BorderLayout.CENTER);
+        timer.start();
     }
 
-    public static void main(String[] args) {
-        // Swing deve criar a janela na Event Dispatch Thread.
-        SwingUtilities.invokeLater(() -> {
-            Simulador2 panel = new Simulador2();
-            JFrame frame = new JFrame("Diffusion in 2D");
-            JButton playPause = new JButton("Pausar");
-            JButton restart = new JButton("Reiniciar");
-            JLabel stepLabel = new JLabel();
-
-            // O Timer substitui plt.pause: a cada 200 ms avancamos 10 passos.
-            Timer timer = new Timer(200, event -> {
-                panel.avancar();
-                stepLabel.setText(panel.textoDoPasso());
-            });
-            playPause.addActionListener(event -> {
-                // Alterna entre executar e pausar a animacao.
-                if (timer.isRunning()) {
-                    timer.stop();
-                    playPause.setText("Continuar");
-                } else {
-                    timer.start();
-                    playPause.setText("Pausar");
-                }
-            });
-            restart.addActionListener(event -> {
-                // Reinicia a visualizacao no mesmo ponto de startPlot do Python.
-                panel.currentStep = START_PLOT;
-                panel.repaint();
-                stepLabel.setText(panel.textoDoPasso());
-                if (!timer.isRunning()) timer.start();
-                playPause.setText("Pausar");
-            });
-
-            // Barra inferior com os controles da animacao.
-            JPanel controls = new JPanel();
-            controls.add(playPause);
-            controls.add(restart);
-            controls.add(stepLabel);
-            frame.add(panel);
-            frame.add(controls, java.awt.BorderLayout.SOUTH);
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-            stepLabel.setText(panel.textoDoPasso());
-            timer.start();
-        });
-    }
-
-    private void gerarSimulacao() {
-        // Equivalente a criar os arrays NumPy e aplicar np.cumsum.
-        Random random = new Random();
-        for (int particle = 0; particle < NUM_PARTICLES; particle++) {
-            for (int step = 0; step < NUM_STEPS; step++) {
-                // A posicao atual e a posicao anterior mais um deslocamento +/-1.
-                double previousX = step == 0 ? 0 : positionsX[particle][step - 1];
-                double previousY = step == 0 ? 0 : positionsY[particle][step - 1];
-                positionsX[particle][step] = previousX + (random.nextBoolean() ? 1 : -1);
-                positionsY[particle][step] = previousY + (random.nextBoolean() ? 1 : -1);
-                maxPosition = Math.max(maxPosition, Math.max(Math.abs(positionsX[particle][step]),
-                        Math.abs(positionsY[particle][step])));
-            }
-        }
-        // Margem visual equivalente a maxV_X e maxV_Y multiplicados por 1.25.
-        maxPosition *= 1.25;
-
-        for (int step = 0; step < NUM_STEPS; step++) {
-            // Para cada instante, calculamos media e raiz da media dos quadrados.
-            double sumX = 0, sumY = 0, squareX = 0, squareY = 0;
-            for (int particle = 0; particle < NUM_PARTICLES; particle++) {
-                double x = positionsX[particle][step];
-                double y = positionsY[particle][step];
-                sumX += x;
-                sumY += y;
-                squareX += x * x;
-                squareY += y * y;
-            }
-            meanX[step] = sumX / NUM_PARTICLES;
-            meanY[step] = sumY / NUM_PARTICLES;
-            rmsX[step] = Math.sqrt(squareX / NUM_PARTICLES);
-            rmsY[step] = Math.sqrt(squareY / NUM_PARTICLES);
-        }
-    }
-
-    private void avancar() {
-        // O passo visual avanca de 10 em 10, como range(startPlot, numSteps, 10).
-        currentStep = Math.min(currentStep + 10, NUM_STEPS - 1);
-        repaint();
-    }
-
-    private String textoDoPasso() {
-        return "Passo: " + (currentStep + 1) + " / " + NUM_STEPS;
+    private void runSimulation() {
+        result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(nParticles, nSteps, 1.0, 1.0, 7L));
     }
 
     @Override
     protected void paintComponent(Graphics graphics) {
-        // Este metodo e chamado novamente sempre que o Timer ou o mouse pede repaint.
         super.paintComponent(graphics);
+        if (result == null) return;
+
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        int centerX = getWidth() / 2;
-        int centerY = getHeight() / 2 + 25;
-        double scale = Math.min(getWidth(), getHeight()) / (2.7 * maxPosition) * zoom;
-        // Os objetos sao ordenados por profundidade para simular a sobreposicao 3D.
-        List<Drawable> objects = new ArrayList<>();
 
-        adicionarSuperficie(objects, centerX, centerY, scale);
-        adicionarParticulas(objects, centerX, centerY, scale);
-        adicionarCirculoSigma(objects, centerX, centerY, scale);
-        objects.sort(Comparator.comparingDouble(object -> object.depth));
-        for (Drawable object : objects) object.draw(g);
+        int cx = getWidth() / 2;
+        int cy = getHeight() / 2 + 20;
+        double maxAbs = 1.0;
+        for (int i = 0; i < result.x().length; i++) {
+            for (int step = 0; step <= currentStep; step++) {
+                maxAbs = Math.max(maxAbs, Math.abs(result.x()[i][step]));
+                maxAbs = Math.max(maxAbs, Math.abs(result.y()[i][step]));
+            }
+        }
+        maxAbs *= 1.5;
+        double scale = Math.min(getWidth(), getHeight()) / (2.8 * maxAbs) * zoom;
 
-        // O inset corresponde ao segundo grafico 2D criado com add_axes no Python.
-        desenharInset(g);
+        for (int particle = 0; particle < result.x().length; particle++) {
+            int[] trailX = new int[currentStep + 1];
+            int[] trailY = new int[currentStep + 1];
+            for (int step = 0; step <= currentStep; step++) {
+                Point3D p = project(result.x()[particle][step], result.y()[particle][step], 0.0, cx, cy, scale);
+                trailX[step] = (int) p.x;
+                trailY[step] = (int) p.y;
+            }
+            g.setColor(new Color(31 + particle % 10, 119 + particle % 50, 180 + particle % 30));
+            g.setStroke(new BasicStroke(1.4f));
+            g.drawPolyline(trailX, trailY, trailX.length);
+
+            Point3D current = project(result.x()[particle][currentStep], result.y()[particle][currentStep], 0.0, cx, cy, scale);
+            g.fillOval((int) current.x - 3, (int) current.y - 3, 6, 6);
+        }
+
+        double centerX = 0.0;
+        double centerY = 0.0;
+        double sigmaX = Math.sqrt(result.msd()[currentStep]) / 2.0;
+        double sigmaY = sigmaX;
+        for (int row = 0; row < 24; row++) {
+            for (int col = 0; col < 24; col++) {
+                double x1 = -maxAbs + col * (2 * maxAbs / 24.0);
+                double x2 = -maxAbs + (col + 1) * (2 * maxAbs / 24.0);
+                double y1 = -maxAbs + row * (2 * maxAbs / 24.0);
+                double y2 = -maxAbs + (row + 1) * (2 * maxAbs / 24.0);
+                double z11 = gaussianSurface(x1, y1, centerX, centerY, sigmaX, sigmaY);
+                double z12 = gaussianSurface(x2, y1, centerX, centerY, sigmaX, sigmaY);
+                double z21 = gaussianSurface(x1, y2, centerX, centerY, sigmaX, sigmaY);
+                double z22 = gaussianSurface(x2, y2, centerX, centerY, sigmaX, sigmaY);
+
+                Point3D a = project(x1, y1, z11, cx, cy, scale);
+                Point3D b = project(x2, y1, z12, cx, cy, scale);
+                Point3D c = project(x2, y2, z22, cx, cy, scale);
+                Point3D d = project(x1, y2, z21, cx, cy, scale);
+
+                int[] xs = {(int) a.x, (int) b.x, (int) c.x, (int) d.x};
+                int[] ys = {(int) a.y, (int) b.y, (int) c.y, (int) d.y};
+                g.setColor(new Color(30, 120, 220, 110));
+                g.fillPolygon(xs, ys, 4);
+                g.setColor(new Color(70, 90, 180, 120));
+                g.drawPolygon(xs, ys, 4);
+            }
+        }
+
         g.setColor(Color.DARK_GRAY);
-        g.setFont(new Font("Serif", Font.BOLD, 19));
-        String title = "Difusao em 2D: " + NUM_PARTICLES + " particulas durante " + NUM_STEPS
-                + " passos (passo " + (currentStep + 1) + ")";
-        FontMetrics metrics = g.getFontMetrics();
-        g.drawString(title, (getWidth() - metrics.stringWidth(title)) / 2, 28);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+        String title = "Difusão em 2D";
+        g.drawString(title, (getWidth() - g.getFontMetrics().stringWidth(title)) / 2, 24);
         g.dispose();
     }
 
-    private void adicionarParticulas(List<Drawable> objects, int centerX, int centerY, double scale) {
-        // Desenha o caminho percorrido e a posicao atual de cada particula no plano z = 0.
-        for (int particle = 0; particle < NUM_PARTICLES; particle++) {
-            int[] trailX = new int[currentStep + 1];
-            int[] trailY = new int[currentStep + 1];
-            double depth = 0;
-            for (int step = 0; step <= currentStep; step++) {
-                ScreenPoint trailPoint = project(
-                        new Point3(positionsX[particle][step], positionsY[particle][step], 0),
-                        centerX, centerY, scale);
-                trailX[step] = (int) trailPoint.x;
-                trailY[step] = (int) trailPoint.y;
-                depth += trailPoint.depth;
-            }
-            double averageDepth = depth / (currentStep + 1);
-            Color particleColor = PARTICLE_COLORS[particle % PARTICLE_COLORS.length];
-            objects.add(new Drawable(averageDepth, g -> {
-                g.setColor(particleColor);
-                g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g.drawPolyline(trailX, trailY, trailX.length);
-            }));
-
-            Point3 point = new Point3(positionsX[particle][currentStep], positionsY[particle][currentStep], 0);
-            ScreenPoint projected = project(point, centerX, centerY, scale);
-            objects.add(new Drawable(projected.depth, g -> {
-                g.setColor(particleColor);
-                g.fillOval((int) projected.x - 3, (int) projected.y - 3, 6, 6);
-            }));
-        }
+    private double gaussianSurface(double x, double y, double meanX, double meanY, double sigmaX, double sigmaY) {
+        double exponent = -((x - meanX) * (x - meanX) / (2.0 * sigmaX * sigmaX)
+                + (y - meanY) * (y - meanY) / (2.0 * sigmaY * sigmaY));
+        return Math.exp(exponent) / (2.0 * Math.PI * sigmaX * sigmaY);
     }
 
-    private void adicionarCirculoSigma(List<Drawable> objects, int centerX, int centerY, double scale) {
-        // Aproxima o plt.Circle por 80 pontos e o projeta no plano z = 0.
-        double radius = N_SIGMA * rmsX[currentStep];
-        double centerXPosition = meanX[currentStep];
-        double centerYPosition = meanY[currentStep];
-        int samples = 80;
-        int[] xs = new int[samples];
-        int[] ys = new int[samples];
-        double depth = 0;
-        for (int index = 0; index < samples; index++) {
-            double angle = 2 * Math.PI * index / (samples - 1);
-            ScreenPoint point = project(new Point3(centerXPosition + radius * Math.cos(angle),
-                    centerYPosition + radius * Math.sin(angle), 0), centerX, centerY, scale);
-            xs[index] = (int) point.x;
-            ys[index] = (int) point.y;
-            depth += point.depth;
-        }
-        double averageDepth = depth / samples;
-        objects.add(new Drawable(averageDepth, g -> {
-            g.setColor(Color.BLACK);
-            g.setStroke(new BasicStroke(2, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
-                    1, new float[]{8, 6}, 0));
-            g.drawPolyline(xs, ys, samples);
-        }));
+    private Point3D project(double x, double y, double z, int cx, int cy, double scale) {
+        double x1 = x * Math.cos(rotationY) - y * Math.sin(rotationY);
+        double y1 = x * Math.sin(rotationY) + y * Math.cos(rotationY);
+        double y2 = y1 * Math.cos(rotationX) - z * Math.sin(rotationX);
+        double depth = y1 * Math.sin(rotationX) + z * Math.cos(rotationX);
+        return new Point3D(cx + x1 * scale, cy - y2 * scale, depth);
     }
 
-    private void adicionarSuperficie(List<Drawable> objects, int centerX, int centerY, double scale) {
-        // Cria uma malha XY e calcula a altura gaussiana em cada vertice.
-        double xMean = meanX[currentStep];
-        double yMean = meanY[currentStep];
-        double sigmaX = Math.max(rmsX[currentStep], 0.001);
-        double sigmaY = Math.max(rmsY[currentStep], 0.001);
-        double step = 2 * maxPosition / (GRID_SIZE - 1);
-        for (int row = 0; row < GRID_SIZE - 1; row++) {
-            for (int col = 0; col < GRID_SIZE - 1; col++) {
-            // Cada celula da malha vira um quadrilatero transluscro.
-                double x1 = -maxPosition + col * step;
-                double x2 = x1 + step;
-                double y1 = -maxPosition + row * step;
-                double y2 = y1 + step;
-                ScreenPoint a = project(new Point3(x1, y1, gaussiana(x1, y1, xMean, yMean, sigmaX, sigmaY)), centerX, centerY, scale);
-                ScreenPoint b = project(new Point3(x2, y1, gaussiana(x2, y1, xMean, yMean, sigmaX, sigmaY)), centerX, centerY, scale);
-                ScreenPoint c = project(new Point3(x2, y2, gaussiana(x2, y2, xMean, yMean, sigmaX, sigmaY)), centerX, centerY, scale);
-                ScreenPoint d = project(new Point3(x1, y2, gaussiana(x1, y2, xMean, yMean, sigmaX, sigmaY)), centerX, centerY, scale);
-                int[] xs = {(int) a.x, (int) b.x, (int) c.x, (int) d.x};
-                int[] ys = {(int) a.y, (int) b.y, (int) c.y, (int) d.y};
-                int shade = (int) Math.min(255, 80 + 280 * Math.max(a.z, Math.max(b.z, Math.max(c.z, d.z))));
-                objects.add(new Drawable((a.depth + b.depth + c.depth + d.depth) / 4, g -> {
-                    g.setColor(new Color(30, Math.max(40, shade - 60), shade, 105));
-                    g.fillPolygon(xs, ys, 4);
-                    g.setColor(new Color(70, 100, 180, 55));
-                    g.drawPolygon(xs, ys, 4);
-                }));
-            }
-        }
-    }
+    private record Point3D(double x, double y, double depth) {}
 
-    private double gaussiana(double x, double y, double xMean, double yMean, double sigmaX, double sigmaY) {
-        // Formula da superficie gaussiana usada no Zga do codigo Python.
-        return NUM_PARTICLES * Math.exp(-Math.pow(x - xMean, 2) / (2 * sigmaX * sigmaX)
-                - Math.pow(y - yMean, 2) / (2 * sigmaY * sigmaY)) / (sigmaX * sigmaY);
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            JFrame frame = new JFrame("Difusão em 2D");
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            frame.setContentPane(new Simulador2());
+            frame.pack();
+            frame.setLocationRelativeTo(null);
+            frame.setVisible(true);
+        });
     }
-
-    private void desenharInset(Graphics2D g) {
-        // Desenha uma versao 2D simples das mesmas particulas e do circulo de sigma.
-        int left = 24, top = 52, width = 190, height = 150;
-        g.setColor(new Color(255, 255, 255, 225));
-        g.fillRect(left, top, width, height);
-        g.setColor(Color.GRAY);
-        g.drawRect(left, top, width, height);
-        double radius = N_SIGMA * rmsX[currentStep];
-        for (int particle = 0; particle < NUM_PARTICLES; particle++) {
-            int previousX = 0;
-            int previousY = 0;
-            g.setColor(PARTICLE_COLORS[particle % PARTICLE_COLORS.length]);
-            for (int step = 0; step <= currentStep; step++) {
-                int x = left + (int) ((positionsX[particle][step] + maxPosition) / (2 * maxPosition) * width);
-                int y = top + height - (int) ((positionsY[particle][step] + maxPosition) / (2 * maxPosition) * height);
-                if (step > 0) g.drawLine(previousX, previousY, x, y);
-                previousX = x;
-                previousY = y;
-            }
-            int x = left + (int) ((positionsX[particle][currentStep] + maxPosition) / (2 * maxPosition) * width);
-            int y = top + height - (int) ((positionsY[particle][currentStep] + maxPosition) / (2 * maxPosition) * height);
-            g.fillOval(x - 2, y - 2, 4, 4);
-        }
-        int cx = left + (int) ((meanX[currentStep] + maxPosition) / (2 * maxPosition) * width);
-        int cy = top + height - (int) ((meanY[currentStep] + maxPosition) / (2 * maxPosition) * height);
-        int diameter = (int) (radius / maxPosition * width);
-        g.setColor(Color.BLACK);
-        g.setStroke(new BasicStroke(2));
-        g.drawOval(cx - diameter / 2, cy - diameter / 2, diameter, diameter);
-    }
-
-    private ScreenPoint project(Point3 point, int centerX, int centerY, double scale) {
-        // Rotaciona um ponto 3D e converte suas coordenadas para pixels da tela.
-        double x1 = point.x * Math.cos(rotationY) - point.y * Math.sin(rotationY);
-        double y1 = point.x * Math.sin(rotationY) + point.y * Math.cos(rotationY);
-        double y2 = y1 * Math.cos(rotationX) - point.z * Math.sin(rotationX);
-        double depth = y1 * Math.sin(rotationX) + point.z * Math.cos(rotationX);
-        return new ScreenPoint(centerX + x1 * scale, centerY - y2 * scale, depth, point.z);
-    }
-
-    // Pequenos tipos imutaveis para transportar pontos e elementos desenhaveis.
-    private record Point3(double x, double y, double z) { }
-    private record ScreenPoint(double x, double y, double depth, double z) { }
-    private record Drawable(double depth, Painter painter) {
-        void draw(Graphics2D graphics) { painter.paint(graphics); }
-    }
-    private interface Painter { void paint(Graphics2D graphics); }
 }

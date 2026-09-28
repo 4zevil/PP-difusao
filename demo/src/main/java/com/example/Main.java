@@ -1,40 +1,36 @@
 package com.example;
-// ---- Matemática (Java puro, sem lib externa) ----
-import java.util.Random;
-// Random substitui o np.random.randint — gera os +1/-1 do passeio aleatório
 
-// ---- Gráfico 3D (jzy3d) ----
-import org.jzy3d.chart.Chart;
-// Chart = a "janela" do gráfico. Equivale ao fig + ax do matplotlib
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
+import javax.swing.SwingUtilities;
 
-import org.jzy3d.chart.factories.AWTChartFactory;
-// Fábrica que CRIA o Chart usando AWT (a interface gráfica nativa do Java)
+public class Main extends JFrame {
 
-import org.jzy3d.maths.Coord3d;
-// Representa um ponto (x, y, z). É a unidade básica de tudo que vamos plotar
+    public Main() {
+        super("Plataforma de Simulação de Difusão");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(new Dimension(1100, 750));
+        setLocationRelativeTo(null);
 
-import org.jzy3d.plot3d.primitives.Scatter;
-// Desenha nuvem de pontos — substitui o ax.scatter(...) do Python
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Difusão 1D", new Simulador1());
+        tabs.addTab("Difusão 2D", new Simulador2());
+        tabs.addTab("Difusão 3D", new Simulador3());
 
-import org.jzy3d.plot3d.primitives.Shape;
-// Desenha a superfície (malha) da esfera N-sigma — substitui o ax.plot_surface(...)
-
-import org.jzy3d.colors.Color;
-// Define cor dos elementos — substitui c='k' e color='b'
-import com.example.Simulador3;
-
-
-public class Main {
- 
-    public static void main(String[] args) {
-       
-       
-        
-        
-
+        JPanel content = new JPanel(new BorderLayout());
+        content.add(tabs, BorderLayout.CENTER);
+        setContentPane(content);
     }
 
-
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            Main frame = new Main();
+            frame.setVisible(true);
+        });
+    }
 }
 
 
