@@ -13,6 +13,7 @@ import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
+import java.util.Arrays;
 import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -21,20 +22,23 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 public class Simulador2 extends JPanel {
-    private final int nParticles = 150;
-    private final int nSteps = 500;
+    private int nParticles = 150;
+    private int nSteps = 500;
     private DiffusionEngine.Result2D result;
-    private int currentStep = 50;
+    private int currentStep;
     private double rotationX = Math.toRadians(25);
     private double rotationY = Math.toRadians(-35);
     private double zoom = 1.0;
     private double delta = 1.0;
     private double tau = 1.0;
+    private Long seed = 7L;
     private Point lastMouse;
+    private JLabel metricsLabel;
 
     public Simulador2() {
         setLayout(new BorderLayout());
@@ -45,13 +49,14 @@ public class Simulador2 extends JPanel {
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT));
         controls.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        JButton playPause = new JButton("Pausar");
+        JButton playPause = new JButton("Animar");
         JButton restart = new JButton("Reiniciar");
         JLabel stepLabel = new JLabel();
-        JSpinner nField = new JSpinner(new SpinnerNumberModel(150, 10, 1000, 10));
-        JSpinner sField = new JSpinner(new SpinnerNumberModel(500, 10, 1500, 10));
+        JSpinner nField = new JSpinner(new SpinnerNumberModel(nParticles, 10, 5000, 10));
+        JSpinner sField = new JSpinner(new SpinnerNumberModel(nSteps, 1, 5000, 10));
         JSpinner deltaField = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 5.0, 0.1));
         JSpinner tauField = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 5.0, 0.1));
+        JTextField seedField = new JTextField("7", 7);
         JButton simulate = new JButton("Simular");
 
         controls.add(new JLabel("N:"));
@@ -62,46 +67,66 @@ public class Simulador2 extends JPanel {
         controls.add(deltaField);
         controls.add(new JLabel("τ:"));
         controls.add(tauField);
+        controls.add(new JLabel("Seed:"));
+        controls.add(seedField);
         controls.add(simulate);
         controls.add(playPause);
         controls.add(restart);
         controls.add(stepLabel);
 
-        Timer timer = new Timer(120, e -> {
+        Timer timer = new Timer(30, e -> {
             int finalStep = result.x()[0].length - 1;
             if (currentStep < finalStep) {
                 currentStep++;
+            } else {
+                ((Timer) e.getSource()).stop();
+                playPause.setText("Animar");
             }
-            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, finalStep));
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep, finalStep));
+            updateMetrics();
             repaint();
         });
 
         playPause.addActionListener(e -> {
             if (timer.isRunning()) {
                 timer.stop();
-                playPause.setText("Continuar");
+                playPause.setText("Animar");
             } else {
+                currentStep = 0;
+                updateMetrics();
+                repaint();
                 timer.start();
                 playPause.setText("Pausar");
             }
         });
 
         restart.addActionListener(e -> {
-            currentStep = Math.min(50, result.x()[0].length - 1);
-            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, result.x()[0].length - 1));
+            timer.stop();
+            currentStep = 0;
+            playPause.setText("Animar");
+            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep, result.x()[0].length - 1));
+            updateMetrics();
             repaint();
         });
 
         simulate.addActionListener(e -> {
-            int n = (int) nField.getValue();
-            int s = (int) sField.getValue();
-            delta = ((Number) deltaField.getValue()).doubleValue();
-            tau = ((Number) tauField.getValue()).doubleValue();
-            result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(n, s, delta, tau));
-            currentStep = Math.min(50, s - 1);
-            if (timer.isRunning()) timer.restart();
-            stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep + 1, s));
-            repaint();
+            try {
+                nParticles = (int) nField.getValue();
+                nSteps = (int) sField.getValue();
+                delta = ((Number) deltaField.getValue()).doubleValue();
+                tau = ((Number) tauField.getValue()).doubleValue();
+                seed = seedField.getText().isBlank() ? null : Long.parseLong(seedField.getText().trim());
+                result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(nParticles, nSteps, delta, tau, seed));
+                currentStep = nSteps;
+                timer.stop();
+                playPause.setText("Animar");
+                stepLabel.setText(String.format(Locale.US, "Passo: %d / %d", currentStep, nSteps));
+                updateMetrics();
+                repaint();
+            } catch (NumberFormatException exception) {
+                javax.swing.JOptionPane.showMessageDialog(this, "Seed deve ser um número inteiro.",
+                        "Parâmetro inválido", javax.swing.JOptionPane.ERROR_MESSAGE);
+            }
         });
 
         MouseAdapter mouse = new MouseAdapter() {
@@ -131,11 +156,28 @@ public class Simulador2 extends JPanel {
         addMouseWheelListener(mouse);
 
         add(controls, BorderLayout.NORTH);
-        timer.start();
+        metricsLabel = new JLabel();
+        metricsLabel.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        metricsLabel.setOpaque(true);
+        metricsLabel.setBackground(new Color(232, 241, 240));
+        metricsLabel.setForeground(new Color(35, 58, 62));
+        add(metricsLabel, BorderLayout.SOUTH);
+        stepLabel.setText(String.format(Locale.US, "Passo: 0 / %d", nSteps));
+        updateMetrics();
     }
 
     private void runSimulation() {
-        result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(nParticles, nSteps, 1.0, 1.0, 7L));
+        result = DiffusionEngine.run2D(new DiffusionEngine.SimConfig(nParticles, nSteps, delta, tau, seed));
+    }
+
+    private void updateMetrics() {
+        if (metricsLabel == null || result == null) return;
+        double[] visibleMsd = Arrays.copyOf(result.msd(), currentStep + 1);
+        double dExperimental = DiffusionEngine.estimateD(visibleMsd, tau, 2);
+        double dTheoretical = DiffusionEngine.theoreticalD(delta, tau);
+        metricsLabel.setText(String.format(Locale.US,
+                "MSD₂ = %.3f  |  RMSD = %.3f  |  Dexp = %.4f  |  Dteo = %.4f",
+                result.msd()[currentStep], result.rmsd()[currentStep], dExperimental, dTheoretical));
     }
 
     @Override
@@ -161,7 +203,7 @@ public class Simulador2 extends JPanel {
         g.setColor(new Color(248, 250, 251));
         g.fillRect(0, 0, getWidth(), getHeight());
 
-        double diffusion = delta * delta / (2.0 * tau);
+        double diffusion = DiffusionEngine.theoreticalD(delta, tau);
         double time = currentStep * tau;
         double sigma = Math.sqrt(2.0 * diffusion * time);
         sigma = Math.max(sigma, 0.001);

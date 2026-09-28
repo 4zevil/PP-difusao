@@ -10,6 +10,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.io.File;
+import java.util.Arrays;
 import java.util.Locale;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -21,6 +22,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 
 public class Simulador1 extends JPanel {
     private static final Color[] PARTICLE_COLORS = {
@@ -36,12 +38,20 @@ public class Simulador1 extends JPanel {
     private double currentDelta = 1.0;
     private double currentTau = 1.0;
     private Long currentSeed = null;
+    private int currentStep;
+    private Timer animationTimer;
+    private JLabel metrics;
 
     public Simulador1() {
         this(new DiffusionEngine.SimConfig(100, 100, 1.0, 1.0));
     }
 
     public Simulador1(DiffusionEngine.SimConfig config) {
+        currentN = config.n();
+        currentS = config.s();
+        currentDelta = config.delta();
+        currentTau = config.tau();
+        currentSeed = config.seed();
         setLayout(new BorderLayout());
         setPreferredSize(new Dimension(900, 650));
         setBackground(Color.WHITE);
@@ -49,13 +59,15 @@ public class Simulador1 extends JPanel {
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT));
         controls.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        JSpinner nField = new JSpinner(new SpinnerNumberModel(100, 1, 5000, 10));
-        JSpinner sField = new JSpinner(new SpinnerNumberModel(100, 1, 5000, 10));
-        JSpinner deltaField = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 10.0, 0.1));
-        JSpinner tauField = new JSpinner(new SpinnerNumberModel(1.0, 0.1, 10.0, 0.1));
+        JSpinner nField = new JSpinner(new SpinnerNumberModel(currentN, 1, 5000, 10));
+        JSpinner sField = new JSpinner(new SpinnerNumberModel(currentS, 1, 5000, 10));
+        JSpinner deltaField = new JSpinner(new SpinnerNumberModel(currentDelta, 0.1, 10.0, 0.1));
+        JSpinner tauField = new JSpinner(new SpinnerNumberModel(currentTau, 0.1, 10.0, 0.1));
         JTextField seedField = new JTextField(8);
+        seedField.setText(currentSeed == null ? "" : currentSeed.toString());
         JButton simulate = new JButton("Simular");
         JButton export = new JButton("Exportar CSV");
+        JButton animate = new JButton("Animar");
 
         controls.add(new JLabel("N:"));
         controls.add(nField);
@@ -69,22 +81,33 @@ public class Simulador1 extends JPanel {
         controls.add(seedField);
         controls.add(simulate);
         controls.add(export);
+        controls.add(animate);
 
-        JLabel metrics = new JLabel();
-        metrics.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
-        controls.add(metrics);
+        metrics = new JLabel();
+        metrics.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        metrics.setOpaque(true);
+        metrics.setBackground(new Color(232, 241, 240));
+        metrics.setForeground(new Color(35, 58, 62));
 
         simulate.addActionListener(event -> {
-            Long seed = seedField.getText() == null || seedField.getText().isBlank() ? null : Long.parseLong(seedField.getText());
-            currentN = (int) nField.getValue();
-            currentS = (int) sField.getValue();
-            currentDelta = ((Number) deltaField.getValue()).doubleValue();
-            currentTau = ((Number) tauField.getValue()).doubleValue();
-            currentSeed = seed;
-            runSimulation();
-            updateMetrics(metrics);
-            repaint();
+            try {
+                animationTimer.stop();
+                currentSeed = seedField.getText().isBlank() ? null : Long.parseLong(seedField.getText().trim());
+                currentN = (int) nField.getValue();
+                currentS = (int) sField.getValue();
+                currentDelta = ((Number) deltaField.getValue()).doubleValue();
+                currentTau = ((Number) tauField.getValue()).doubleValue();
+                runSimulation();
+                currentStep = currentS;
+                updateMetrics();
+                repaint();
+            } catch (NumberFormatException exception) {
+                javax.swing.JOptionPane.showMessageDialog(this, "Seed deve ser um número inteiro.",
+                        "Parâmetro inválido", javax.swing.JOptionPane.ERROR_MESSAGE);
+            }
         });
+
+        animate.addActionListener(event -> startAnimation());
 
         export.addActionListener(event -> {
             if (result == null) {
@@ -97,16 +120,29 @@ public class Simulador1 extends JPanel {
                 try {
                     DiffusionEngine.exportToCSV(file, result, new DiffusionEngine.SimConfig(currentN, currentS, currentDelta, currentTau, currentSeed));
                 } catch (Exception ex) {
-                    ex.printStackTrace();
+                    javax.swing.JOptionPane.showMessageDialog(this, "Não foi possível exportar o CSV: " + ex.getMessage(),
+                            "Falha na exportação", javax.swing.JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
 
         add(controls, BorderLayout.NORTH);
         add(new PlotPanel(), BorderLayout.CENTER);
+        add(metrics, BorderLayout.SOUTH);
+
+        animationTimer = new Timer(30, event -> {
+            if (currentStep < currentS) {
+                currentStep++;
+                updateMetrics();
+                repaint();
+            } else {
+                animationTimer.stop();
+            }
+        });
 
         runSimulation();
-        updateMetrics(metrics);
+        currentStep = currentS;
+        updateMetrics();
     }
 
     private void runSimulation() {
@@ -114,14 +150,28 @@ public class Simulador1 extends JPanel {
         result = DiffusionEngine.run1D(config);
     }
 
-    private void updateMetrics(JLabel metrics) {
+    private void startAnimation() {
+        animationTimer.stop();
+        currentStep = 0;
+        updateMetrics();
+        repaint();
+        animationTimer.start();
+    }
+
+    private void updateMetrics() {
         if (result == null) return;
-        double msdFinal = result.msd()[currentS];
-        double rmsdFinal = result.rmsd()[currentS];
-        double dEstimate = DiffusionEngine.estimateDiffusionCoefficient(result.msd(), currentTau, 1);
+        double meanPosition = 0.0;
+        for (double[] trajectory : result.trajectories()) {
+            meanPosition += trajectory[currentStep];
+        }
+        meanPosition /= result.trajectories().length;
+        double[] visibleMsd = Arrays.copyOf(result.msd(), currentStep + 1);
+        double dExperimental = DiffusionEngine.estimateD(visibleMsd, currentTau, 1);
+        double dTheoretical = DiffusionEngine.theoreticalD(currentDelta, currentTau);
         metrics.setText(String.format(Locale.US,
-                "x̄_final=%.3f | MSD_final=%.3f | RMSD_final=%.3f | D_est=%.4f",
-                result.meanFinalPos(), msdFinal, rmsdFinal, dEstimate));
+                "Passo %d/%d  |  <x> = %.3f  |  MSD = %.3f  |  RMSD = %.3f  |  Dexp = %.4f  |  Dteo = %.4f",
+                currentStep, currentS, meanPosition, result.msd()[currentStep], result.rmsd()[currentStep],
+                dExperimental, dTheoretical));
     }
 
     public static void main(String[] args) {
@@ -166,7 +216,7 @@ public class Simulador1 extends JPanel {
             g.drawString("Distribuição final", rightPlotX, 48);
 
             drawTrajectoryPlot(g, leftPlotX, top, leftPlotRight - leftPlotX, bottom - top);
-            drawHistogram(g, result.histogram(), rightPlotX, top, rightPlotRight - rightPlotX, bottom - top);
+            drawHistogram(g, rightPlotX, top, rightPlotRight - rightPlotX, bottom - top);
 
             g.setColor(new Color(35, 48, 58));
             g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
@@ -189,13 +239,14 @@ public class Simulador1 extends JPanel {
             maxAbs *= 1.12;
             double plotWidth = right - left;
             double plotHeight = bottom - top;
+            int visibleSteps = Math.max(1, currentStep);
 
             for (int tick = 0; tick <= 4; tick++) {
                 int gridY = top + (int) Math.round(tick * plotHeight / 4.0);
                 g.setColor(new Color(225, 231, 235));
                 g.drawLine(left, gridY, right, gridY);
                 g.setColor(new Color(91, 104, 113));
-                String label = Integer.toString(currentS - (int) Math.round(tick * currentS / 4.0));
+                String label = Integer.toString(currentStep - (int) Math.round(tick * currentStep / 4.0));
                 g.drawString(label, x + 5, gridY + 4);
             }
             g.setColor(new Color(91, 104, 113));
@@ -213,11 +264,11 @@ public class Simulador1 extends JPanel {
                         PARTICLE_COLORS[particle % PARTICLE_COLORS.length].getGreen(),
                         PARTICLE_COLORS[particle % PARTICLE_COLORS.length].getBlue(), 100));
                 g.setStroke(new BasicStroke(1.0f));
-                for (int step = 1; step <= currentS; step++) {
+                for (int step = 1; step <= currentStep; step++) {
                     int prevX = left + (int) Math.round((result.trajectories()[particle][step - 1] + maxAbs) * plotWidth / (2.0 * maxAbs));
                     int currX = left + (int) Math.round((result.trajectories()[particle][step] + maxAbs) * plotWidth / (2.0 * maxAbs));
-                    int prevY = bottom - (int) Math.round((step - 1) * plotHeight / currentS);
-                    int currY = bottom - (int) Math.round(step * plotHeight / currentS);
+                    int prevY = bottom - (int) Math.round((step - 1) * plotHeight / visibleSteps);
+                    int currY = bottom - (int) Math.round(step * plotHeight / visibleSteps);
                     g.drawLine(prevX, prevY, currX, currY);
                 }
             }
@@ -257,7 +308,12 @@ public class Simulador1 extends JPanel {
             }
         }
 
-        private void drawHistogram(Graphics2D g, DiffusionEngine.HistogramData histogram, int x, int y, int width, int height) {
+        private void drawHistogram(Graphics2D g, int x, int y, int width, int height) {
+            double[] positions = new double[result.trajectories().length];
+            for (int i = 0; i < positions.length; i++) {
+                positions[i] = result.trajectories()[i][currentStep];
+            }
+            DiffusionEngine.HistogramData histogram = DiffusionEngine.calculateHistogram(positions, 20);
             if (histogram == null || histogram.binCenters() == null || histogram.counts() == null || histogram.density() == null) {
                 return;
             }
@@ -271,13 +327,12 @@ public class Simulador1 extends JPanel {
             double binWidth = histogram.binWidth();
             double minX = centers[0] - binWidth / 2.0;
             double maxX = centers[centers.length - 1] + binWidth / 2.0;
-            double time = currentS * currentTau;
-            double diffusion = currentDelta * currentDelta / (2.0 * currentTau);
+            int plottedStep = Math.max(1, currentStep);
             double maxDensity = 0.0;
             for (double value : histogram.density()) maxDensity = Math.max(maxDensity, value);
             for (int i = 0; i <= plotWidth; i++) {
                 double value = minX + i * (maxX - minX) / plotWidth;
-                maxDensity = Math.max(maxDensity, DiffusionEngine.gaussian1D(value, time, diffusion, 1.0));
+                maxDensity = Math.max(maxDensity, DiffusionEngine.gaussianDensity(value, plottedStep, currentDelta));
             }
             maxDensity = Math.max(maxDensity, 1e-12) * 1.12;
 
@@ -301,7 +356,8 @@ public class Simulador1 extends JPanel {
             g.setStroke(new BasicStroke(2.2f));
             for (int i = 0; i <= plotWidth; i++) {
                 double value = minX + i * (maxX - minX) / plotWidth;
-                double density = DiffusionEngine.gaussian1D(value, time, diffusion, 1.0);
+                double density = currentStep == 0 ? 0.0
+                    : DiffusionEngine.gaussianDensity(value, currentStep, currentDelta);
                 int pointY = bottom - (int) Math.round(density * plotHeight / maxDensity);
                 if (i > 0) g.drawLine(previousX, previousY, left + i, pointY);
                 previousX = left + i;

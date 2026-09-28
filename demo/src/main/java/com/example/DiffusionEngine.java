@@ -10,6 +10,14 @@ import java.util.Random;
 public class DiffusionEngine {
 
     public record SimConfig(int n, int s, double delta, double tau, Long seed) {
+        public SimConfig(int n, int s, double delta, long seed) {
+            this(n, s, delta, 1.0, Long.valueOf(seed));
+        }
+
+        public SimConfig(int n, int s, double delta, Long seed) {
+            this(n, s, delta, 1.0, seed);
+        }
+
         public SimConfig(int n, int s, double delta, double tau) {
             this(n, s, delta, tau, null);
         }
@@ -212,6 +220,25 @@ public class DiffusionEngine {
             return 0.0;
         }
         return n0 / Math.sqrt(4.0 * Math.PI * D * t) * Math.exp(-(x * x) / (4.0 * D * t));
+    }
+
+    public static double gaussianDensity(double x, int s, double delta) {
+        double variance = s * delta * delta;
+        if (variance <= 0.0) {
+            return 0.0;
+        }
+        return Math.exp(-(x * x) / (2.0 * variance)) / Math.sqrt(2.0 * Math.PI * variance);
+    }
+
+    public static double theoreticalD(double delta, double tau) {
+        if (tau <= 0.0) {
+            return 0.0;
+        }
+        return (delta * delta) / (2.0 * tau);
+    }
+
+    public static double estimateD(double[] msd, double tau, int dimension) {
+        return estimateDiffusionCoefficient(msd, tau, dimension);
     }
 
     public static double estimateDiffusionCoefficient(double[] msd, double tau, int dimension) {
